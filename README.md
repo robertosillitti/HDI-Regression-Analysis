@@ -39,4 +39,4 @@ This project workflow includes:
 
 ---
 ## Requirements
-- Packages: `openxlsx`,`dplyr`, `ggplot2`, `gridExtra`, `GGally`, `leaps`, `knitr`, `kableExtra`, `car`, `tidygeocoder`, `sf`, `tibble`, `broom`, `effects`
+Packages: `openxlsx`,`dplyr`, `ggplot2`, `gridExtra`, `GGally`, `leaps`, `knitr`, `kableExtra`, `car`, `tidygeocoder`, `sf`, `tibble`, `broom`, `effects`
