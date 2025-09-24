@@ -1,0 +1,876 @@
+---
+title: "HDI Regression Analysis"
+geometry: "left=3cm,right=3cm,top=2cm,bottom=2cm"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, include=FALSE}
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(GGally)
+library(leaps)
+library(knitr)
+library(kableExtra)
+library(car)
+library(tidygeocoder)
+library(sf)
+library(tibble)
+library(broom)  
+library(effects)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE,    
+                      message = FALSE,    
+                      fig.align='center', 
+                      fig.pos = "H"    
+                     )
+```
+
+## Data collection and goal of the analysis 
+
+The goal of my analysis is to examine how the Human Development Index (HDI) is influenced by various factors across the majority of countries in 2020 and how it varies in relation to some indicators. For this analysis, I will use two datasets: the first provides data on the HDI calculated for all countries, while the second contains a comprehensive list of global indicators that may be valuable for my analysis. Various variables can impact the HDI, particularly those related to education, health, social, economic and environmental aspects. The HDI is the geometric mean of normalized indices for three dimensions: the health dimension, assessed by life expectancy at birth; the education dimension, measured by the mean years of schooling for adults aged 25 years and older and expected years of schooling for children of school-entering age; and the standard of living dimension, measured by the gross national income per capita. My objective is to understand if other variables that do not directly enter into the HDI calculation can influence it. The HDI is published annually by the United Nations Development Programme (UNDP), while I used the World Bank website for the indicators. My dataset includes 177 countries after removing some countries due to excessive missing values for many variables. For other countries, I used "MissForest", which is a random forest-based imputation algorithm for missing data. Afterward, I examined the density functions before and after the imputation of the missing data and did not observe significant differences. 
+After selecting variables based on their potential relevance for my analysis, I have chosen 10 predictors to start the analysis. Moreover, before starting the analysis, I centered all variables to their mean, except for _$CO_2$ emissions_. Since I will apply a logarithmic transformation to _$CO_2$ emissions_, centering would result in negative values, which are not suitable for logarithmic scaling.
+In conclusion, to better understand the distribution of the HDI across different regions, I have created a qualitative variable called "Geographical Region". The boxplot in Figure 1 summarizes the distribution of HDI scores across five geographical areas.
+
+```{r, include=FALSE}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+```
+
+```{r, include=FALSE}
+Final_dataset <- read.xlsx("/Users/robertosillitti/Desktop/Final Dataset.xlsx")
+```
+
+```{r, include=FALSE}
+Final_dataset[,4:12] <- scale(Final_dataset[,4:12], center = T, scale = F)
+```
+
+```{r, include=FALSE}
+mean(Final_dataset$Vulnerable_employment, na.rm = TRUE) #check if the mean is zero
+```
+
+```{r, include=FALSE}
+Final_dataset <- Final_dataset %>%
+  mutate(Geographical_region = case_when(
+    # America
+    Country %in% c("Argentina", "Antigua and Barbuda", "Bahamas", "Barbados", "Belize", "Bolivia", "Brazil", 
+                   "Canada", "Chile", "Colombia", "Costa Rica", "Cuba", "Dominican Republic", "Dominica", 
+                   "Ecuador", "El Salvador", "Guatemala", "Guyana", "Haiti", 
+                   "Honduras", "Jamaica", "Mexico", "Nicaragua", "Panama", "Paraguay", 
+                   "Peru", "St. Vincent and the Grenadines", "Suriname", "St. Lucia", "Trinidad and Tobago", 
+                   "United States", "Uruguay", "Venezuela") ~ "North and South America",
+    
+    # Europe
+    Country %in% c("Albania", "Austria", "Belarus", "Belgium", "Bosnia and Herzegovina", 
+                   "Bulgaria", "Croatia", "Czechia", "Denmark", "Estonia", 
+                   "Finland", "France", "Germany", "Greece", "Hungary", "Iceland", "Ireland", 
+                   "Italy", "Latvia", "Lithuania", "Luxembourg", "Malta", "Moldova", 
+                   "Montenegro", "Netherlands", "North Macedonia", "Norway", "Poland", 
+                   "Portugal", "Romania", "Russia", "Serbia", "Slovakia", 
+                   "Slovenia", "Spain", "Sweden", "Switzerland", "Ukraine", "United Kingdom",
+                   "Cyprus", "Turkey") ~ "Europe",
+    
+    # Africa
+    Country %in% c("Angola", "Benin", "Botswana", "Burkina Faso", "Burundi", 
+                   "Cabo Verde", "Cameroon", "Central African Republic", "Chad", "Comoros", 
+                   "Congo, Dem. Rep.", "Congo, Rep.", "Equatorial Guinea", 
+                   "Eritrea", "Eswatini", "Ethiopia", "Gabon", "Gambia", "Ghana", "Guinea", 
+                   "Guinea-Bissau", "Cote d'Ivoire", "Kenya", "Lesotho", "Liberia",  
+                   "Madagascar", "Malawi", "Mali", "Mauritania", "Mauritius",  
+                   "Mozambique", "Namibia", "Niger", "Nigeria", "Rwanda", "Sao Tome and Principe", 
+                   "Senegal", "Seychelles", "Sierra Leone", "South Africa", 
+                   "Sudan", "Tanzania", "Togo", "Uganda", "Zambia", "Zimbabwe", "Algeria", 
+                   "Djibouti", "Egypt", "Libya", "Morocco", "Tunisia") ~ "Africa",
+    
+    # Asia
+    Country %in% c("Afghanistan", "Armenia", "Azerbaijan", "Bangladesh", "Bhutan", 
+                    "China", "Georgia", "Hong Kong, China (SAR)", "India", "Japan", "Kazakhstan", 
+                   "Kyrgyzstan", "Korea, Rep.",  "Maldives", "Mongolia",  
+                   "Nepal", "Pakistan", "Russian Federation",  "South Korea", "Sri Lanka", 
+                   "Tajikistan", "Turkmenistan", "Uzbekistan", "Bahrain", "Iran, Islamic Rep.", 
+                   "Iraq", "Israel", "Jordan", "Kuwait", 
+                   "Lebanon", "Oman", "Qatar", "Saudi Arabia", "Syrian Arab Republic", 
+                   "United Arab Emirates", "Yemen"
+                   ) ~ "Central Asia",
+    
+    # Oceania
+    Country %in% c("Australia", "Fiji", "New Zealand", "Papua New Guinea", "Kiribati",
+                   "Samoa", "Solomon Islands", "Tonga", "Vanuatu", "Brunei Darussalam",
+                   "Viet Nam", "Lao PDR", "Cambodia", "Thailand", "Myanmar", "Malaysia",
+                   "Indonesia", "Singapore", "Philippines", "Timor-Leste" ) ~ "Southeast Asia and Oceania",
+    
+    TRUE ~ "Other"
+  ))
+
+table(Final_dataset$Geographical_region)
+Final_dataset$Geographical_region <- as.factor(Final_dataset$Geographical_region)
+Final_dataset$Geographical_region <- relevel(Final_dataset$Geographical_region, ref = "Europe") 
+```
+
+## Exploratory analysis
+
+```{r, echo=FALSE, fig.cap="Boxplot for HDI by Geographical Region", out.width="67%"}
+Final_dataset <- Final_dataset %>%
+  group_by(Geographical_region) %>%
+  mutate(GeoRegion_labeled = paste0(Geographical_region, " (", n(), ")")) %>%
+  ungroup()
+
+ggplot(Final_dataset, aes(x = GeoRegion_labeled, y = HDI, fill = GeoRegion_labeled)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(x = "Geographical Region", y = "HDI", fill = "Geographical Region (n. of countries)") +
+  theme(axis.text.x = element_blank(),  
+        axis.ticks.x = element_blank()) 
+```
+
+From the boxplot, it is evident that Europe exhibits the highest HDI, indicating a better overall human development outcomes compared to other regions. In contrast, Africa displays the lowest HDI, reflecting more significant developmental issues. Central Asia and the Americas show similar distributions with nearly identical median values, while Southeast Asia and Oceania have a slightly lower median HDI than Central Asia and the Americas.
+
+```{r, include=FALSE}
+Final_dataset <- Final_dataset[,-c(14)]
+```
+
+```{r, include=FALSE}
+colnames(Final_dataset) <- c("Country", "HDI", "CO2", "ElectricityAccess", "HealthExp", "EducationExp", "FoodBalance", "Internet", "MaternalMortalityRatio", "RegulatoryQuality", "RenewableEnergy", "VulnerableEmployment", "GeoRegion") 
+```
+
+```{r, echo=FALSE,fig.height=9, fig.width=12, dpi=300, fig.cap="Scatter plot and correlation matrix  for all variables"}
+Final_dataset2 <- Final_dataset[,-c(1,13)]
+colnames(Final_dataset2) <- substr(colnames(Final_dataset2), 1, 12)
+
+ggpairs(Final_dataset2, diag = list(continuous = wrap("barDiag"))) 
+```
+
+The variable _Electricity Access_ (percentage of population with electricity access) is highly concentrated around 100, indicating that in many countries, electricity is universally available. It also shows a strong positive relationship with HDI.
+_Health Expenditure_ and _Education Expenditure_ (both as percentages of GDP) exhibit no clear linear relationship with HDI, with _Health Expenditure_ also featuring some extreme values. Similarly, _Food Trade Balance_ (difference between total food exports and imports) follows a comparable pattern. Conversely, _Individuals Using the Internet_ (percentage of the population) displays a strong positive linear relationship with HDI. A similar trend is observed for _Regulatory Quality_ (an estimate of quality of laws and regulations), though with greater dispersion between -2 and 0, beyond which the relationship becomes more linear.
+_Maternal Mortality Ratio_ (per 100,000 live births) has a non-linear negative relationship with HDI. Moreover, most countries exhibit very low maternal mortality, as shown in the histogram.
+_Renewable Energy consumption_ (percentage of total final energy use) is negatively correlated with HDI, maybe due to long times and significant investments that renewables need to impact a country's economy.
+_Vulnerable Employment_ (percentage of workers in precarious jobs) shows a negative linear relationship with HDI, reinforcing that a higher share of vulnerable workers is associated with lower HDI.
+A strong positive correlation (about 0.8) exists between _Electricity Access_ and _Individuals Using the Internet_, as stable electricity supply is essential for internet access. _Individuals Using the Internet_ is also positively correlated with _Regulatory Quality_ (0.713).
+_Renewable Energy Consumption_ and _$CO_2$ Emissions_ show a negative correlation, meaning countries with higher renewable energy use tend to have lower emissions. However, some industrialized nations with high HDI continue to exhibit high emissions despite investing in renewables.
+
+```{r, echo=FALSE, fig.cap="$CO_2$ emissions before and after the logarithmic transformation", fig.width=6, fig.height=3}
+p1 <- ggplot(Final_dataset, aes(x = CO2 , y = HDI)) +
+  geom_point(alpha = 0.6) +  
+  labs(title = NULL,
+       x = "CO2 emissions",  
+       y = "HDI") +
+  theme_minimal()  
+
+p2 <- ggplot(Final_dataset, aes(x = log(CO2) , y = HDI)) +
+  geom_point(alpha = 0.6) +  
+  labs(title = NULL,
+       x = "log(CO2 emissions)",  
+       y = "HDI") +
+  theme_minimal()  
+
+grid.arrange(p1, p2,  nrow = 1, ncol = 2)
+```
+Regarding _$CO_2$ emissions_ (total tons per capita), I applied a logarithmic transformation since the data were highly dispersed. Some countries (such as Qatar or UAE) exhibit extreme values, as evident from the scatter plot on the right. The logarithmic transformation helped to make linear the relationship between HDI and this variable. Furthermore, I attempted to perform variable selection without applying the logarithmic transformation, but the variable is rarely included in the selected models. Since I think that this variable can be useful in explain variation in HDI I decided to apply the transformation before to start the analysis. To conclude, the relationship is positive, indicating that countries with a higher HDI tend to have higher $CO_2$ emissions (an expected outcome, given that more developed economies typically have greater industrial activity). 
+Before starting the variable selection process, I also transformed my response variable using an inverse CDF transformation. This transformation was applied because the HDI is an index that ranges between 0 and 1, and using a standard linear regression model could lead to predictions outside this interval. 
+The transformation makes the response variable take values on the entire real line (-$\infty$, +$\infty$) instead of being constrained to [0,1], making it more suitable for regression analysis.
+Moreover, the probit transformation helps to stabilize variance, but also it improves the normality assumption of the error terms (fundamental requirement for linear regression models) as showed in Figure 4.
+
+```{r}
+Final_dataset$HDI_probit <- qnorm(Final_dataset$HDI)
+```
+
+```{r, echo=FALSE, out.width="67%", fig.cap="Histogram of HDI before and after probit transformation"}
+par(mfrow = c(1,2))
+hist(Final_dataset$HDI, xlab = "HDI", main = NULL, col="lightblue", probability = TRUE)
+    lines(density(Final_dataset$HDI), col = "red", lwd = 2)
+hist(Final_dataset$HDI_probit, xlab = "Probit HDI", main = NULL, col = "lightblue", probability = TRUE)
+lines(density(Final_dataset$HDI_probit), col = "red", lwd = 2)
+```
+
+## Variable selection and model improvement
+
+```{r, warning=FALSE, include=FALSE}
+Model <- regsubsets (HDI_probit ~ . -Country -HDI +log(CO2) -CO2,
+                     data = Final_dataset, nvmax = 20, really.big = T)
+summ <- summary(Model)
+```
+
+```{r}
+p <- 14
+n <- 177
+aic_values <- numeric(p)
+for (k in 1:p) {
+    model <- regsubsets(HDI_probit ~ . -Country -HDI +log(CO2) -CO2, 
+                        data = Final_dataset, nvmax = p)
+    
+    model_summary <- summary(model)
+    aic_values[k] <- n * log(model_summary$rss[k]/n) + 2 * (k+2)
+}
+```
+
+```{r, echo=FALSE, fig.pos="H", fig.cap="Criteria used for best subset selection", fig.height=2, fig.width=8}
+par(mfrow=c(1,4), mar = c(2,2,1,1))
+
+#BIC
+plot(summ$bic, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="Drop in BIC")
+abline (v=which.min(summ$bic),col = 2, lty=2)
+#Cp
+plot(summ$cp, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="Mallow' Cp")
+abline (v=which.min(summ$cp),col = 2, lty=2)
+#R2
+plot(summ$adjr2, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="Adjusted Rˆ2")
+abline (v=which.max(summ$adjr2),col = 2, lty=2)
+#AIC
+plot(aic_values, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="AIC")
+abline (v=which.min(aic_values),col = 2, lty=2)
+```
+
+```{r, include=FALSE}
+#Variables to include using BIC
+bic.min <- which.min(summ$bic)
+best.vars1 <- names(coef(model, id=bic.min))
+print(best.vars1)
+```
+```{r, include=FALSE}
+#Variables to include using AIC
+aic.min <- which.min(aic_values)
+best.vars2 <- names(coef(model, id=aic.min))
+print(best.vars2)
+```
+```{r, include=FALSE}
+#Variables to include using CP
+best.cp <- which.min(summ$cp)
+best.vars3 <- names(coef(model, id=best.cp))
+print(best.vars3)
+```
+
+After the best subset selection, as indicated by the results of AIC and $C_p$ statistic the optimal model includes 11 predictors. The BIC suggests a similar model but includes only one level of _Geographical region_, and also incorporates _Education expenditure_. The results of the forward selection are identical to those obtained from best subset selection, while the backward selection yields a very similar model. However, I prefer the model selected through best subset selection, suggested by AIC and $C_p$, because I want to retain the geographical variable as it account for variability across macro areas, which is valuable to check if the uncorrelated errors assumption is satisfied. Next, I will check for collinearity issues and perform model diagnostics to verify whether all regression assumptions are met.
+In conclusion, the model I selected after the best subset selection is the following:
+```{r}
+model_reduced1 <- lm(HDI_probit ~ HealthExp + EducationExp + Internet + RegulatoryQuality 
+    + RenewableEnergy + VulnerableEmployment + GeoRegion + log(CO2), data = Final_dataset)
+```
+
+```{r, echo=FALSE}
+# table with gif values
+gvif_values2 <- vif(model_reduced1)
+
+gvif_table <- data.frame(
+  Variable = rownames(gvif_values2),
+  GVIF = gvif_values2[,1],
+  Df = gvif_values2[,2],
+  GVIF_adj = gvif_values2[,3]
+)
+
+split_index <- ceiling(nrow(gvif_table) / 2)
+gvif_table_1 <- gvif_table[1:split_index, ]
+gvif_table_2 <- gvif_table[(split_index + 1):nrow(gvif_table), ]
+
+gvif_table_split <- data.frame(
+  Variable = gvif_table_1$Variable,
+  GVIF = gvif_table_1$GVIF,
+  Df = gvif_table_1$Df,
+  GVIF_adj = gvif_table_1$GVIF_adj,
+  Variable2 = gvif_table_2$Variable,
+  GVIF2 = gvif_table_2$GVIF,
+  Df2 = gvif_table_2$Df,
+  GVIF_adj2 = gvif_table_2$GVIF_adj
+)
+
+colnames(gvif_table_split) <- c("Variable", "GVIF", "Df", "GVIF_adj", "Variable", "GVIF", "Df", "GVIF_adj")
+
+kable(gvif_table_split, caption = "GVIF values", align = "c") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"), position = "center")
+
+```
+
+Looking at the GVIFs values there are not collinearity issues in the model since all values are under the threshold of 10.
+
+```{r, echo=FALSE, fig.cap="Q-Q plot, Histogram of the residuals and Shapiro-Wilk test", fig.height=3, fig.width=8}
+par(mfrow = c(1,3))
+qqnorm (residuals (model_reduced1), ylab="Residuals")
+qqline (residuals (model_reduced1), col="lightblue")
+hist(residuals(model_reduced1), xlab = "Residuals", main = "Histogram of residuals", col="lightblue")
+shapiro_test <- shapiro.test(residuals(model_reduced1))
+plot(1, type = "n", axes = FALSE, xlab = "", ylab = "", main = "Shapiro-Wilk Test")
+text(1, 1, paste("W =", round(shapiro_test$statistic, 5)), cex = 1.2)
+text(1, 0.8, paste("p-value =", round(shapiro_test$p.value, 5)), cex = 1.2)
+```
+Regarding the normality assumption, the QQ-plot shows that most points align well with the theoretical quantiles, though some slight deviations occur at the tails, while the histogram displays a bell-shaped distribution. Overall, the residuals appear approximately normal, but the p-value of the Shapiro-Wilk test is low; however, since it is greater than 0.05, I can accept the null hypothesis of normality.
+
+```{r, echo=FALSE, fig.cap="Residual plots", out.width="75%"}
+residualPlots(model_reduced1, terms = ~ . -GeoRegion, tests = FALSE)
+```
+Looking at the residual plots, there is a strong non-linearity issue related to _Regulatory quality_. Other variables, such as _Education expenditure_ and _Renewable energy_, also exhibit some degree of non-linearity, but the issue is not as severe. Moreover, the plot of the fitted values highlights a significant linearity problem, likely driven by the presence of _Regulatory quality_ in the model.
+Indeed, with the addition of the quadratic term for this variable, keeping all other variables in the model, the results change significantly, as illustrated in Figure 8.
+```{r, include=FALSE}
+model_reduced2 <- lm(HDI_probit ~ HealthExp + EducationExp + Internet +
+ RegulatoryQuality + RenewableEnergy + VulnerableEmployment +
+GeoRegion +  log(CO2) + I(RegulatoryQuality^2), data = Final_dataset)
+summary(model_reduced2)
+```
+
+```{r, echo=FALSE, fig.cap="Effect of adding $({Regulatory Quality})^2$", out.width="65%"}
+residualPlots(model_reduced2, terms = ~ RegulatoryQuality + I(RegulatoryQuality^2), tests = F)
+```
+The fitted values now exhibit linearity, suggesting that the inclusion of this new predictor has improved the model. While the quadratic term shows some linearity issue, it is not severe. Moreover, the model summary confirms that the quadratic term is statistically significant. However, since an additional predictor has been included, it is necessary to repeat the variable selection procedure to determine which variables should be retained or excluded. Additionally, a new diagnostic analysis must be conducted.
+
+```{r, warning=FALSE, include=FALSE}
+Model2 <- regsubsets (HDI_probit ~ . -Country -HDI +log(CO2) -CO2 +I(RegulatoryQuality^2),
+                     data = Final_dataset, nvmax = 20, really.big = T)
+summ2 <- summary(Model2)
+```
+
+```{r, include=FALSE}
+aic_values <- numeric(15)
+for (k in 1:15) {
+    model <- regsubsets(HDI_probit ~ . -Country -HDI +log(CO2) -CO2 +I(RegulatoryQuality^2) , 
+                        data = Final_dataset, nvmax = 20, really.big = TRUE)
+    
+    model_summary <- summary(model)
+    rss <- model_summary$rss
+    
+    if (length(model_summary$rss) >= k) {
+        aic_values[k] <- 177 * log(rss[k]/177) + 2 * k
+    } else {
+        aic_values[k] <- NA  
+    }
+}
+```
+
+
+```{r, echo=FALSE, fig.pos="H", fig.height=2, fig.width=8, fig.cap="Criteria used for best subset selection of the model after the introduction of $Regulatory Quality^2$"}
+par(mfrow=c(1,4), mar = c(2,2,1,1))
+
+#BIC
+plot(summ2$bic, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="Drop in BIC")
+abline (v=which.min(summ2$bic),col = 2, lty=2)
+#Cp
+plot(summ2$cp, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="Mallow' Cp")
+abline (v=which.min(summ2$cp),col = 2, lty=2)
+#R2
+plot(summ2$adjr2, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="Adjusted Rˆ2")
+abline (v=which.max(summ2$adjr2),col = 2, lty=2)
+#AIC
+plot(aic_values, type="b", pch=19,
+xlab="Number of predictors", ylab="", main="AIC")
+abline (v=which.min(aic_values),col = 2, lty=2)
+```
+
+```{r, include = FALSE}
+#Variables to include using AIC
+aic.min <- which.min(aic_values)
+best.vars2 <- names(coef(Model2, id=aic.min))
+print(best.vars2)
+```
+
+```{r, include=FALSE}
+#Variables to include using CP
+best.cp <- which.min(summ2$cp)
+best.vars3 <- names(coef(Model2, id=best.cp))
+print(best.vars3)
+```
+
+
+```{r, include=FALSE}
+Final_dataset4 <- Final_dataset
+Final_dataset4$LogCO2 <- log(Final_dataset4$CO2)
+Final_dataset4$RegulatoryQuality2 <- Final_dataset4$RegulatoryQuality^2
+Final_dataset4 <- Final_dataset4[,-c(1,2,3)]
+```
+
+
+```{r}
+p <- 15
+set.seed (1)
+folds <- sample (1:n, nrow(Final_dataset4), replace = FALSE)
+cv.errors <- matrix (NA, n, p, dimnames = list(NULL, paste (1:p)))
+
+for (j in 1:n){
+  best.fit <- regsubsets(HDI_probit ~ .,  data = Final_dataset4[folds !=j,], nvmax = p)
+  for (i in 1:p){
+    mat <- model.matrix(as.formula(best.fit$call[[2]]), Final_dataset4[folds==j,])
+    coefi <- coef(best.fit, id = i)
+    xvars <- names(coefi)
+    pred  <- mat[,xvars]%*%coefi
+    cv.errors[j,i] <- mean((Final_dataset4$HDI_probit[folds==j]-pred)^2)
+  }
+}
+```
+
+
+```{r, echo=FALSE, fig.cap="LOOCV plot", out.width="65%"}
+summary_bestfit <- summary(best.fit)
+cv.mean <- colMeans(cv.errors)
+
+par(mfrow =c(1,1))
+plot(cv.mean ,type="b",pch=19,
+xlab="Number of predictors",
+ylab="CV error")
+abline(v=which.min(cv.mean), col=2, lty=2)
+```
+
+```{r,echo=FALSE}
+selected_aic <- c("Internet", "RegulatoryQuality", "log(CO2)", "EducationExp", "ElectricityAccess", "HealthExp", "MaternalMortalityRatio", "RenewableEnergy", "VulnerableEmployment", "GeoRegionAfrica", "I(RegulatoryQuality^2)",                   "GeoRegionCentral Asia", "GeoRegionNorth and South America", "GeoRegionSoutheast Asia and Oceania" )
+selected_bic <- c("Internet", "RegulatoryQuality", "log(CO2)", "VulnerableEmployment", "GeoRegionAfrica", "I(RegulatoryQuality^2)", "GeoRegionCentral Asia", "GeoRegionNorth and South America", "GeoRegionSoutheast Asia and Oceania")
+selected_cp  <- c("Internet", "RegulatoryQuality", "log(CO2)", "EducationExp", "ElectricityAccess", "HealthExp", "MaternalMortalityRatio", "RenewableEnergy", "VulnerableEmployment", "GeoRegionAfrica", "I(RegulatoryQuality^2)",                   "GeoRegionCentral Asia", "GeoRegionNorth and South America", "GeoRegionSoutheast Asia and Oceania")
+
+# Table with selected variables
+selection_table <- data.frame(
+  Criterion = c("AIC", "BIC", "Cp"),
+  Selected_Variables = c(
+    paste(selected_aic, collapse = "  /  "),
+    paste(selected_bic, collapse = "  /  "),
+    paste(selected_cp, collapse = "  /  ")
+  )
+)
+
+kable(selection_table, caption = "Selected Variables by AIC, BIC, and Cp") %>%
+kable_styling(latex_options = c("hold_position"), position = "center") %>%
+  column_spec(2, width = "13cm")  
+```
+
+Looking at the variables selected with all criteria, the quadratic term is included in all the models, confirming its relevance. The results remain largely similar to the previous analysis; however, $C_p$ statistic and AIC now include also _Electricity access_ and _Maternal mortality ratio_, even though these variables are not significant. The LOOCV and the adjusted $R^2$ instead suggest to take the full model.
+The results remain the same regardless of whether best subset selection, backward selection, or forward selection is used. However, I prefer the smaller model, as suggested by BIC, for two main reasons: a smaller model reduces overall complexity, improving interpretability and avoiding unnecessary predictors; and although AIC and $C_p$ suggest a larger model, the difference between models with 9 or more predictors is minimal according to these two criteria, as observed in Figure 9.
+Therefore, I have chosen the smaller model (with 9 predictors), which includes the following variables: 
+
+```{r, results='hide'}
+Final_model <- lm(HDI_probit ~ Internet + RegulatoryQuality + VulnerableEmployment +
+ GeoRegion + log(CO2) + I(RegulatoryQuality^2), data = Final_dataset)
+summary(Final_model)
+```
+
+## Checking for collinearity issues
+
+```{r, echo=FALSE}
+gvif_values2 <- vif(Final_model)
+
+gvif_table <- data.frame(
+  Variable = rownames(gvif_values2),
+  GVIF = gvif_values2[,1],
+  Df = gvif_values2[,2],
+  GVIF_adj = gvif_values2[,3]
+)
+
+split_index <- ceiling(nrow(gvif_table) / 2)
+gvif_table_1 <- gvif_table[1:split_index, ]
+gvif_table_2 <- gvif_table[(split_index + 1):nrow(gvif_table), ]
+
+gvif_table_split <- data.frame(
+  Variable = gvif_table_1$Variable,
+  GVIF = gvif_table_1$GVIF,
+  Df = gvif_table_1$Df,
+  GVIF_adj = gvif_table_1$GVIF_adj,
+  Variable2 = gvif_table_2$Variable,
+  GVIF2 = gvif_table_2$GVIF,
+  Df2 = gvif_table_2$Df,
+  GVIF_adj2 = gvif_table_2$GVIF_adj
+)
+
+colnames(gvif_table_split) <- c("Variable", "GVIF", "Df", "GVIF_adj", "Variable", "GVIF", "Df", "GVIF_adj")
+
+kable(gvif_table_split, caption = "GVIF values of the final model", align = "c") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"), position = "center")
+```
+
+
+Looking at the GVIFs values there are not collinearity issues in the final model since all values are under the threshold of 10.
+
+## Diagnostics
+
+### Homoskedasticity assumption
+
+```{r, echo=FALSE, fig.cap="Fitted values vs Residuals plot", out.width="65%"}
+Final_dataset5 <- Final_dataset
+Final_dataset5$residuals <- resid(Final_model)
+Final_dataset5$fitted <- fitted(Final_model)
+
+ggplot(Final_dataset5, aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.5) + 
+  geom_smooth(method = "lm", se = FALSE, col = "red3") + 
+  geom_smooth(method = "lm", se = FALSE, col = "blue3", linetype = "dashed", aes(y = residuals - 2*sd(residuals))) +  
+  geom_smooth(method = "lm", se = FALSE, col = "blue3", linetype = "dashed", aes(y = residuals + 2*sd(residuals))) +  
+  theme_minimal() +
+  labs(x = "Fitted Values", y = "Residuals", title = NULL)
+```
+
+Examining the plot of fitted values against residuals, it appears that the assumption 
+of constant variance (homoskedasticity) holds. The residuals are randomly distributed 
+around zero, with no precise pattern.
+
+### Linearity assumption
+
+```{r, echo=FALSE, fig.cap="Residual plots of the final model", out.width="80%"}
+residualPlots(Final_model, tests = FALSE)
+```
+The plots display the Pearson residuals against all predictors and fitted values to assess the model's linearity assumption.
+Most predictors exhibit a random scatter of residuals around zero, suggesting that the linear assumption holds well, even if $Regulatory quality^2$ shows a slight curvature.
+_Vulnerable employment_ and _Individuals using the internet_ display mild patterns, indicating potential non-linearity. The boxplot of residuals across geographical regions suggests that the medians are close to zero and there is similar variance across groups; however, a few extreme residuals (e.g., 149, 6) indicate some observations deviate more than expected.
+
+### Normality assumption
+
+```{r, echo=FALSE, fig.height=3, fig.width=8, fig.align='center', fig.cap="Q-Q plot, Histogrsm of the residuals and Shapiro-Wilk test"}
+par(mfrow = c(1,3))
+qqnorm (residuals (Final_model), ylab="Residuals")
+qqline (residuals (Final_model), col="lightblue")
+hist(residuals(Final_model), xlab = "Residuals", main = "Histogram of residuals", col="lightblue")
+shapiro_test <- shapiro.test(residuals(Final_model))
+plot(1, type = "n", axes = FALSE, xlab = "", ylab = "", main = "Shapiro-Wilk Test")
+text(1, 1, paste("W =", round(shapiro_test$statistic, 5)), cex = 1.2)
+text(1, 0.8, paste("p-value =", round(shapiro_test$p.value, 5)), cex = 1.2)
+```
+
+In the Q-Q plot most points closely follow the reference line, suggesting that the residuals are approximately normal. However, there are slight deviations in the tails. 
+In the histogram the residuals appear approximately symmetric, suggesting that the assumption of normality is met. The p-value of the Shapiro-Wilk test is very high, indicating that the null hypothesis of normality can be accepted. 
+
+```{r, include=FALSE}
+# Names of the countries
+country_list <- unique(Final_dataset$Country)
+
+coords <- tibble(Country = country_list) %>% 
+  geocode(country = Country, method = "osm")  # OpenStreetMap (OSM) to obtain the coordinates
+```
+
+```{r, include=FALSE}
+manual_coords <- data.frame(
+  Country = c("Congo, Dem. Rep.", "Congo, Rep.", "Hong Kong, China (SAR)", "Iran, Islamic Rep.", "Korea, Rep.", "Lao PDR", "St. Vincent and the Grenadines"),  # Sostituisci con i nomi reali
+  lat = c(-2.9814344, -0.7264327, 22.350627, 32.6475314, 36.638392, 20.0171109, 12.90447),  # Lat
+  long = c(23.8222636, 15.6419155, 114.1849161, 54.5643516, 127.6961188, 103.378253, -61.2765569) # Long
+)
+```
+
+```{r, include=FALSE}
+coords <- left_join(coords, manual_coords, by = "Country", suffix = c(".auto", ".manual"))
+```
+
+```{r, include=FALSE}
+coords <- coords %>%
+  mutate(
+    lat = coalesce(lat.auto, lat.manual),
+    long = coalesce(long.auto, long.manual)
+  ) 
+
+coords <- as_tibble(coords)
+coords <- coords %>% dplyr::select(Country, lat, long)
+```
+
+```{r, include=FALSE}
+Final_dataset$residuals <- resid(Final_model)
+summary(Final_dataset$residuals)
+```
+
+```{r, include=FALSE}
+Final_dataset2 <- Final_dataset %>%
+  mutate(Country = case_when(
+    Country == "Bosnia and Herzegovina" ~ "Bosnia and Herz.",
+    Country == "Congo, Dem. Rep." ~ "Dem. Rep. Congo",
+    Country == "Congo, Rep." ~ "Congo",
+    Country == "Dominican Republic" ~ "Dominican Rep.",
+    Country == "Equatorial Guinea" ~ "Eq. Guinea",
+    Country == "Hong Kong, China (SAR)" ~ "Hong Kong",
+    Country == "Iran, Islamic Rep." ~ "Iran",
+    Country == "Lao PDR" ~ "Laos",
+    Country == "Solomon Islands" ~ "Solomon Is.",
+    Country == "Brunei Darussalam" ~ "Brunei",
+    Country == "Russian Federation" ~ "Russia",
+    Country == "St. Lucia" ~ "Saint Lucia",
+    Country == "Syrian Arab Republic" ~ "Syria",
+    Country == "United States" ~ "United States of America",
+    Country == "Antigua and Barbuda" ~ "Antigua and Barb.",
+    Country == "Central African Republic" ~ "Central African Rep.",
+    Country == "Cote d'Ivoire" ~ "Côte d'Ivoire",
+    Country == "Eswatini" ~ "eSwatini",
+    Country == "Korea, Rep." ~ "South Korea",
+    Country == "Sao Tome and Principe" ~ "São Tomé and Principe",
+    Country == "St. Vincent and the Grenadines" ~ "St. Vin. and Gren.",
+    Country == "Viet Nam" ~ "Vietnam",
+    TRUE ~ Country # other names remain the same
+  ))
+```
+
+### Uncorrelation of the errors assumption
+
+```{r, echo=FALSE, message=FALSE, fig.cap="Spatial distribution of the residuals", out.width="80%"}
+# To upload the world map
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+
+world_data <- world %>%
+  left_join(Final_dataset2, by = c("name" = "Country"))  
+
+ggplot(data = world_data) +
+  geom_sf(aes(fill = residuals), color = "white") +  
+  scale_fill_gradient2(low = "blue3", mid = "lightskyblue", high = "red3", midpoint = 0) +  
+  theme_minimal() +
+  labs(title = NULL, fill = "Residuals") +
+  theme(legend.position = "bottom")
+```
+Variations in colors suggest potential differences in residuals across geographical regions.
+Eastern Europe exhibits a consistent blue pattern, suggesting correlation of the residuals, while Western Europe shows more variations in residuals. South America presents spatial dependency, with clusters of blue and red areas indicating regional trends.
+North and Central America display mixed residuals, suggesting a less pronounced spatial correlation.
+Africa also shows clear patterns, with a red cluster in Central Africa and a large blue area in the North, suggesting that certain regional effects might not be fully captured. Also Central Asia similarly exhibits signs of spatial correlation.
+These patterns show that spatial dependencies could be influencing the residuals. The presence of geographical clusters of positive or negative residuals suggests that some important regional factors might not be fully captured in the model. For instance, cultural factors, political stability or conflicts can affect development beyond economic indicators; indeed, some countries might not fit well with the general model trends due to unique economic, social or political conditions.
+
+### Checking for unusual observations
+
+```{r}
+lev <- hatvalues(Final_model)  #Leverage
+stud_resid <- rstudent(Final_model)  #Standardized residuals
+threshold_leverage <- 2 * (length(coef(Final_model)) / n)  
+
+outliers <- abs(stud_resid) > 3
+high_leverage <- lev > threshold_leverage
+```
+
+```{r, echo=FALSE, fig.cap="Residuals vs Leverage plot", out.width="75%"}
+lev <- hatvalues(Final_model)  #Leverage
+stud_resid <- rstudent(Final_model)  #Standardized residuals
+threshold_leverage <- 2 * (length(coef(Final_model)) / nrow(Final_dataset))  
+
+outliers <- abs(stud_resid) > 3
+high_leverage <- lev > threshold_leverage
+
+plot(lev, stud_resid, xlab="Leverage", ylab="Studentized Residuals",
+     main=NULL, pch=20)
+points(lev[outliers], stud_resid[outliers], col="red3", pch=19)
+points(lev[high_leverage], stud_resid[high_leverage], col="darkgreen", pch=19)
+
+abline(h=c(-3,3), col="red3", lty=2)
+
+abline(v=threshold_leverage, col="darkgreen", lty=2)
+
+if (sum(outliers) > 0) {
+    text(lev[outliers], stud_resid[outliers], labels = Final_dataset$Country[outliers], pos = 4, col = "red3", cex = 0.43)
+}
+
+if (sum(high_leverage) > 0) {
+    text(lev[high_leverage], stud_resid[high_leverage], labels = Final_dataset$Country[high_leverage], pos = 3, col = "darkgreen", cex = 0.5)
+}
+```
+
+Sri Lanka stands out as an outlier since its standardized residual falls outside the typical $\pm3$ range, which is commonly used to detect extreme observations.
+The green points represent high leverage points, indicating that these observations have extreme values in one or more covariates. Indeed, leverage measures how far an observation's predictor values deviate from the rest of the dataset. After reviewing summary statistics, I observed that some of these countries exhibit extreme values: Libya has the lowest value for _Regulatory Quality_, whereas Singapore has the highest. However, it is essential to verify whether these data points are also influential by examining Cook's distance.
+
+```{r}
+alpha <-  0.05
+bonferroni_quantile <- qt(1 - alpha/(2*n), df = Final_model$df.residual)
+```
+
+```{r, echo=FALSE, fig.align='center', out.width="70%", fig.cap="Bonferroni correction"}
+n <- 177
+alpha = 0.05
+bonferroni_quantile  = qt(1 - alpha/(2*n), df = Final_model$df.residual)
+studentized_res <- rstudent(Final_model)
+threshold = qt(1 - alpha/2, df = Final_model$df.residual)
+plot( abs(studentized_res), pch = 16,  ylim = c(0,6),
+      main = "Outlier Detection", ylab = "Studentized Residuals")
+abline(h = threshold,
+       col = 'red', lty = 2, lwd = 2)
+abline(h = bonferroni_quantile, 
+       col = 'blue', lty = 2, lwd = 2)
+legend("topright", 
+       legend = c("Bonferroni threshold", 
+                  "No correction threshold"), 
+        lty = c(2,2), lwd = c(2,2), col = c('blue','red') )
+```
+Moreover, analyzing the Bonferroni correction plot, no data point falls outside the critical range. So, there are not extreme values of studentized residuals, so no extreme outliers.
+
+```{r, echo=FALSE, fig.align='center', out.width="70%", fig.cap="Cook's distance"}
+cook<- cooks.distance(Final_model)
+cook_df <- data.frame(Observation = 1:length(cook), 
+                      CookDistance = cook)
+
+threshold_cook2 <- 0.04
+
+ggplot(cook_df, aes(x = Observation, y = CookDistance)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = ifelse(CookDistance > threshold_cook2, Final_dataset$Country, "")), 
+            vjust = -1, size = 2, color = "darkgreen") +
+  labs(title = "Cook's Distance", x = "Observation Index", y = "Cook's Distance") +
+  theme_minimal()
+```
+There are no influential points as all the Cook's distance values are under 0.5. However, Sri Lanka, the only identified outlier, exhibits the second-highest Cook's distance among all countries. This suggests that, while not highly influential, it still has a relatively greater impact on the model compared to other observations.
+
+```{r, include=FALSE}
+Final_dataset <- column_to_rownames(Final_dataset, var = "Country")
+```
+
+## Interpretation of the results
+
+Now, I examine the results of the final model.
+
+```{r, include=FALSE}
+Final_model <- lm(HDI_probit ~ Internet + RegulatoryQuality + VulnerableEmployment +
+ GeoRegion + log(CO2) + I(RegulatoryQuality^2), data = Final_dataset)
+```
+
+\[
+\begin{aligned}
+HDI_{probit} &= \beta_0 + \beta_1 \cdot \text{Internet} + \beta_2 \cdot \text{RegulatoryQuality} + \beta_3 \cdot \text{VulnerableEmployment} \\
+&\quad + \beta_4 \cdot \text{GeoRegion} + \beta_5 \cdot \log(\text{CO}_2) + \beta_6 \cdot \text{RegulatoryQuality}^2 + \epsilon
+\end{aligned}
+\]
+
+```{r, echo=FALSE}
+summary_model <- summary(Final_model)
+regression_table <- tidy(Final_model, conf.int = T)
+
+kable(regression_table, caption = "Regression Results") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"), position = "center") %>%
+  column_spec(1, width = "4cm") 
+```
+
+The regression coefficients represent the effect of the independent variables on the probit-transformed Y. So, for example the average probit-HDI is equal to 0.6724197, for a country in
+Europe (baseline category), when all other variable are equal to their mean and _$CO_2$ emissions_ is equal to 1 (since log(1) = 0). While for example the increase of one unit (one percentage point) in   the percentage of people using the internet leads to a 0.0038 unit change in the probit-HDI. 
+A one-unit increase in _Regulatory Quality_ from its mean leads to a (0.191 + 2(0.0862) x _Regulatory Quality_) increase in probit-HDI.
+The positive quadratic term suggests a nonlinear relationship: higher values of _Regulatory Quality_ lead to an accelerating effect on probit-HDI. So, if _Regulatory Quality_ is at its mean (centered at 0), its effect on probit-HDI is just 0.191, while if it increases, its effect on HDI grows. Conversely, if _Regulatory Quality_ decreases, the effect weakens and could even become negative for very low values.
+Regarding _Vulnerable Employment_ a 1 percentage point increase in vulnerable employment relative to the mean leads to a 0.0021 decrease in probit-HDI. While for _log($CO_2$)_ a 1% increase in $CO_2$ emissions leads to a 0.0739 increase in probit-HDI.
+For the geographical variable the interpretation is the following:
+
+- _Africa_: being in Africa decreases probit-HDI by 0.2466 relative to Europe;
+- _Central Asia_: being in Central Asia decreases probit-HDI by 0.1129 relative to Europe;
+- _North and South America_: probit-HDI is 0.0934 lower than Europe;
+- _Southeast Asia and Oceania_: probit-HDI is 0.1619 lower than Europe.
+
+However, using a probit transformation makes the interpretation of the coefficients more difficult, and the results can only be interpreted on the probit scale.
+
+```{r, echo=FALSE, fig.cap="Effect plots of some variables", fig.width=9, fig.height=3}
+effect_plot <- effect("RegulatoryQuality", Final_model)
+effect_df <- as.data.frame(effect_plot)
+effect_plot2 <- effect("Internet", Final_model)
+effect_df2 <- as.data.frame(effect_plot2)
+effect_plot3 <- effect("VulnerableEmployment", Final_model)
+effect_df3 <- as.data.frame(effect_plot3)
+
+p1 <- ggplot(effect_df, aes(x = RegulatoryQuality, y = fit)) +
+  geom_line(color = "blue") +  # Effect Line
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +  # Confidence Interval
+  labs(title = NULL,
+       x = "Regulatory Quality",
+       y = "Predicted HDI (Probit Scale)") +
+  theme_minimal()
+
+p2 <- ggplot(effect_df2, aes(x = Internet, y = fit)) +
+  geom_line(color = "blue") +  # Effect Line
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +  # Confidence Interval
+  labs(title = NULL,
+       x = "Internet",
+       y = "Predicted HDI (Probit Scale)") +
+  theme_minimal()
+
+p3 <- ggplot(effect_df3, aes(x = VulnerableEmployment, y = fit)) +
+  geom_line(color = "blue") +  # Effect Line
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +  # Confidence Interval
+  labs(title = NULL,
+       x = "Vulnerable Employment",
+       y = "Predicted HDI (Probit Scale)") +
+  theme_minimal()
+
+grid.arrange(p1,p2,p3, ncol = 3)
+```
+
+An effects plot displays the estimated impact of each predictor on the response variable while averaging out the effects of the other predictors. It helps interpret how changes in a specific predictor influence the predicted response, holding all other variables constant.
+As expected, _Regulatory Quality_ exhibits a quadratic effect, meaning that while low levels may not strongly impact HDI, higher values significantly contribute to human development. The curve bend upward: indeed the quadratic term is positive.
+_Internet_ access positively affects HDI, confirming its crucial role in development, while _Vulnerable Employment_ has a negative impact, emphasizing the importance of stable job opportunities in enhancing human development. Confidence intervals are wider at extreme values, indicating greater uncertainty in those regions.
+
+### t-tests 
+
+The t-statistic perform the following hypotheses: 
+$$
+\begin{cases}
+H_0: \beta_i = 0  & \text{(The coefficient is not significant)} \\
+H_1: \beta_i \neq 0  & \text{(The coefficient is significant)}
+\end{cases}
+$$
+Looking at the p-values in the summary of the regression in Table 4, all coefficients are statistically significant, meaning they are different from zero at any conventional significance level. This indicates that each predictor has a significant impact on the probit-HDI and contributes to explaining its variability within the model. This result aligns with my expectations since none of the confidence intervals in Table 4 contain 0.
+
+### Testing a group of regressors
+
+Then, I decided to test a smaller model without $Regulatory Quality^2$ and _Geographical Region_ to determine whether these two variables contribute significantly to the model. This was done by performing an ANOVA test with the following hypotheses:
+$$
+\begin{cases}
+H_0: \beta_4 = 0, \quad \beta_6 = 0 \quad \text{(} \textit{Regulatory Quality}^2 \text{ and Geographical Region are not significant)} \\
+H_1: \beta_4 \neq 0 \text{ or } \beta_6 \neq 0 \quad \text{(At least one of the variables contributes significantly to the model)}
+\end{cases}
+$$
+```{r, include=FALSE}
+restricted_model <- lm(HDI_probit ~ Internet + log(CO2) + VulnerableEmployment + RegulatoryQuality, data = Final_dataset)
+```
+```{r}
+anova(restricted_model, Final_model)
+```
+The p-value is very low and so I reject the null hypothesis and I conclude that the removed variables ($Regulatory quality^2$ and _Geographical region_) contribute significantly to the model. This further contributes to demonstrating that the quadratic term is significant.
+
+### Goodness of fit
+
+```{r, echo=FALSE}
+summary_model <- summary(Final_model)
+r_squared <- summary_model$r.squared
+adj_r_squared <- summary_model$adj.r.squared
+
+cat("R-squared:", r_squared, "\n")
+cat("Adjusted R-squared:", adj_r_squared, "\n")
+```
+
+The values of $R^2$ and Adjusted $R^2$ are very similar and both quite high. Considering the Adjusted $R^2$, which accounts for the number of predictors in the model, the model explains 94.49% of the variability in probit-HDI. This indicates that the predictors capture almost all the variance in the response variable.
+
+### Prediction
+
+Now, suppose there is a new observation in the dataset with the following values: 
+```{r}
+new_data <- data.frame(
+  GeoRegion = "Africa",
+  RegulatoryQuality = 0.5 - mean(Final_dataset$RegulatoryQuality),
+  `I(RegulatoryQuality^2)` = (0.5 - mean(Final_dataset$RegulatoryQuality))^2,
+  CO2 = log(7,65),
+  Internet = 83 - mean(Final_dataset$Internet),
+  VulnerableEmployment = 20 - mean(Final_dataset$VulnerableEmployment))
+
+predict(Final_model, newdata = new_data, interval = "prediction", level = 0.95)
+```
+The value 0.7604 represents the predicted HDI (transformed using the probit transformation) when the predictors take the specified values in the code above. Additionally, the displayed interval (0.4508, 1.0699) represents the confidence interval for this prediction, indicating the range within which the true predicted value is likely to fall.
+
+### Data simulation
+
+```{r, echo=FALSE}
+set.seed(123)
+n <- nrow(Final_dataset) 
+
+beta <- coef(Final_model)
+X <- model.matrix(Final_model)  # Design matrix including intercept
+y_pred <- X %*% beta  
+sigma_hat <- summary(Final_model)$sigma
+y_sim <- y_pred + rnorm(n, mean = 0, sd = sigma_hat)
+
+simulated_data <- data.frame(X[, -1], Simulated_Y = y_sim)  # Exclude intercept column
+```
+
+```{r, echo=FALSE, fig.cap="Simulated vs Observed response plot", out.width="65%"}
+plot(y_sim, y_pred,
+     xlab = "Simulated Response",
+     ylab = "Observed Response",
+     main = NULL,
+    col = "red4", pch = 16)
+abline(0,1, lwd = 2, col = "blue3")
+```
+
+The plot above illustrates that most points align closely with the blue line, indicating that the model effectively captures the observed data. While minor deviations suggest some prediction errors, they do not appear severe.
+
+## Conclusion
+
+Overall, the model performs well in explaining HDI variability, demonstrating that factors beyond its standard computation, such as $CO_2$ emissions or internet access, can influence development. However, interpretability may be somewhat complex due to the probit transformation.
+The assumptions of linear regression seem to hold, except for spatial correlation of residuals, likely driven by similar economic and social conditions in certain regions. There is only one outlier (Sri Lanka), but it is not an influential point. Additionally, the high $R^2$ and the strong significance of all coefficients reinforce the model’s explanatory power.
+Nevertheless, it is important to acknowledge that HDI is a simplified measure of human development, omitting aspects such as inequality, poverty, and human security. While the included variables do not directly address these dimensions (except _Regulatory Quality_), they remain highly relevant in capturing socio-economic and environmental factors influencing HDI.
+
+## References
+
+- United Nation Development programs, 2020, Human Development Index Dataset, https://www.undp.org/
+- World Bank, last update: 01/28/2025, World Development Indicators Dataset, https://databank.worldbank.org/source/world-development-indicators
+- Gareth James, Daniela Witten, Trevor Hastie, Robert Tibshirani. (2013). _An introduction to statistical learning with applications in R_. New York, Springer.
