@@ -39,7 +39,7 @@ This project workflow includes:
 5. Regression analysis  
 
 ---
-### Repository Structure:
+## Repository Structure:
 In this repository you will find:
 - R Markdown scripts containing all the necessary code to perform exploratory analysis, specify the model, carry out variable selection according to specific criteria, conduct result diagnostics, and generate plots and tables. Each script includes comments and interpretation of the results (mostly based on the graphical output, see the PDF for details).
 - PDF report with the most relevant code excerpts, data visualizations, plots, and a detailed discussion of the findings.
@@ -47,5 +47,5 @@ In this repository you will find:
 - Preliminary analysis to reduce the dataset's dimensionality (as the original dataset was very large), based on missing values and correlations. Additionally, some checks were performed after imputing missing values.
 - README file providing an overview of the entire project.
 
-### Requirements
+## Requirements
 Packages: `openxlsx`,`dplyr`, `ggplot2`, `gridExtra`, `GGally`, `leaps`, `knitr`, `kableExtra`, `car`, `tidygeocoder`, `sf`, `tibble`, `broom`, `effects`
