@@ -14,7 +14,7 @@ The goal is to investigate whether additional variables (beyond those used in th
 
 After cleaning, the dataset includes 177 countries. Some countries were removed due to excessive missing values, while others were completed using MissForest, a random forest-based imputation algorithm. Density checks before and after imputation showed no significant differences.
 
-The final dataset file contains significantly fewer variables than the the original dataset (see the preliminary analysis script). The analysis uses a much smaller set of variables than those present in the final dataset for technical and logical reasons. However, larger analyses can still be conducted using the other variables provided in the dataset in this repository.
+The "Final dataset" file contains significantly fewer variables than the the original dataset (see the preliminary analysis script). The analysis uses a much smaller set of variables than those present in the final dataset for technical and logical reasons. However, larger analyses can still be conducted using the other variables provided in the dataset in this repository.
 
 ---
 
