@@ -8,7 +8,7 @@ The goal is to investigate whether additional variables (beyond those used in th
 
 ---
 
-## Dataset description
+## Dataset Description
 - **HDI data**: published annually by the United Nations Development Programme (UNDP). https://hdr.undp.org/data-center/documentation-and-downloads  
 - **Global indicators**: collected from the World Bank database. https://datatopics.worldbank.org/world-development-indicators/
 
